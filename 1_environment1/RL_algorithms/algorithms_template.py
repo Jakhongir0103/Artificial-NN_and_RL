@@ -16,12 +16,15 @@ def softmax_(env, beta, Q):
     """
     # Hint: start by filtering out the non-available actions in the current state
     actions = env.available()
+    encoded_actions = [env.encode_action(a) for a in actions]
+    Q_available = np.array(Q)[encoded_actions]
 
     # Hint: remember to rescale all Q-values for the current state by beta
-    Q_beta = [beta*val for val in Q]
-
+    Q_beta = [beta*val for val in Q_available]
+    
     # Hint: to do a softmax operation on a set of Q-values you can use the scipy.special.softmax() function
-    idx = np.argmax(softmax(Q_beta))
+    probas = softmax(Q_beta)
+    idx = np.random.choice(a=range(len(Q_beta)), p=probas)
 
     return actions[idx]
 
@@ -38,15 +41,20 @@ def epsilon_greedy(env, epsilon, Q):
     """
     # Hint: start by filtering out the non-available actions in the current state
     actions = env.available()
+    encoded_actions = [env.encode_action(a) for a in actions]
+    
+    # mask non available actions
+    mask = np.full(env.get_num_actions(), True)
+    mask[encoded_actions] = False
 
     if np.random.uniform(0, 1) < epsilon:
-        return sample(actions, 1)
+        return sample(actions, 1)[0]
 
     else:
         # with probability 1-epsilon choose the action with the highest immediate reward (exploitation):
         # Hint: remember to break ties randomly
-        idx = np.argmax(Q)
-        return actions[idx]
+        idx = np.argmax(np.ma.array(Q, mask=mask))
+        return env.inverse_encoding(idx)
 
 
 
@@ -80,6 +88,8 @@ def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon
             and the corresponding values being a list (of length num_episodes) containing, for each episode, the reward 
             collected and the length of the episode respectively.
     """
+    assert action_policy in ["epsilon_greedy", "softmax_"], "Invalid action policy is passed."
+    
     # Q-values map
     # Dictionary that maps the tuple representation of the state to a dictionary of action values
     Q = defaultdict(lambda: initial_q * np.ones(env.get_num_actions()))  # All Q-values are initialized to initial_q
@@ -88,33 +98,56 @@ def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon
     episode_rewards = np.empty(num_episodes)
     episode_lengths = np.empty(num_episodes)
 
-    for itr in range(num_episodes):
+    for n_ep in range(num_episodes):
 
         env.reset()
 
         # re-initialize the eligibility traces
+        # TODO
+        
+        # 
+        episode_length = 0
+        episode_reward = 0
 
         while not env.end:
-            raise NotImplementedError
+            
             # rescale all traces
+            # TODO
 
+            # get current state and reward
+            state = env.get_state()
+            
             # choose action according to the desired policy
+            if action_policy=='epsilon_greedy':
+                action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q[state])
+            else:
+                action_ = softmax_(env=env, beta=epsilon_exploration, Q=Q[state])
 
             # move according to the policy
+            env.do_action(action_)
+            encoded_action_ = env.encode_action(action_)
 
             # update trace of current state action pair
+            # TODO
 
             # compute the target
             # Hint: all Q-values for fictitious state-action pairs are set to zero by convention
 
             # update all Q-values
+            Q[state][encoded_action_] = Q[state][encoded_action_] + alpha * (env.reward() - Q[state][encoded_action_])  # one horizon only
 
             # prepare for the next move
+            episode_length += 1
+            episode_reward += env.reward()
 
         # save reward of the current episode
+        episode_rewards[n_ep] = episode_reward
         # save length of the current episode
+        episode_lengths[n_ep] = episode_length
 
     # save stats
+    stats = {'episode_rewards':episode_rewards, 'episode_lengths':episode_lengths}
+    return Q, stats
 
 
 
