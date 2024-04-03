@@ -14,10 +14,13 @@ def softmax_(env, beta, Q):
     :return:
         - the chosen action
     """
+    # Q values of the current state
+    Q_current = Q[env.get_state()]
+
     # Hint: start by filtering out the non-available actions in the current state
     actions = env.available()
     encoded_actions = [env.encode_action(a) for a in actions]
-    Q_available = np.array(Q)[encoded_actions]
+    Q_available = np.array(Q_current)[encoded_actions]
 
     # Hint: remember to rescale all Q-values for the current state by beta
     Q_beta = [beta*val for val in Q_available]
@@ -43,22 +46,25 @@ def epsilon_greedy(env, epsilon, Q):
     actions = env.available()
     encoded_actions = [env.encode_action(a) for a in actions]
     
+    # Q values of the current state
+    Q_current = Q[env.get_state()]
+    
     # mask non available actions
     mask = np.full(env.get_num_actions(), True)
     mask[encoded_actions] = False
 
     if np.random.uniform(0, 1) < epsilon:
         return sample(actions, 1)[0]
-
     else:
         # with probability 1-epsilon choose the action with the highest immediate reward (exploitation):
         # Hint: remember to break ties randomly
-        idx = np.argmax(np.ma.array(Q, mask=mask))
+        idx = np.argmax(np.ma.array(Q_current, mask=mask))
         return env.inverse_encoding(idx)
 
 
 
 def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon_greedy", epsilon_exploration=0.1,
+
           epsilon_exploration_rule=None, trace_decay=0, initial_q=0):
     """
     Trains an agent using the Sarsa algorithm by playing num_episodes games until the reward states are reached
@@ -99,46 +105,61 @@ def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon
     episode_lengths = np.empty(num_episodes)
 
     for n_ep in range(num_episodes):
-
         env.reset()
 
+        # initialize the action according to the policy
+        state = env.get_state()
+        if action_policy=='epsilon_greedy':
+            action = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q)
+        else:
+            action = softmax_(env=env, beta=epsilon_exploration, Q=Q)
+
         # re-initialize the eligibility traces
-        # TODO
+        traces = defaultdict(lambda: np.zeros(env.get_num_actions()))
         
-        # 
+        # save episode length and reward
         episode_length = 0
         episode_reward = 0
 
         while not env.end:
-            
             # rescale all traces
-            # TODO
+            for s in traces.keys():
+                for a, _ in enumerate(traces[s]):
+                    if traces[s][a] != 0:
+                       traces[s][a] = trace_decay * traces[s][a]
 
-            # get current state and reward
-            state = env.get_state()
+            # do action and get current state and reward
+            state_, reward = env.do_action(action)
+            encoded_action = env.encode_action(action)
             
             # choose action according to the desired policy
             if action_policy=='epsilon_greedy':
-                action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q[state])
+                if epsilon_exploration_rule is None:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q)
+                else:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration_rule[n_ep], Q=Q)
             else:
-                action_ = softmax_(env=env, beta=epsilon_exploration, Q=Q[state])
-
-            # move according to the policy
-            env.do_action(action_)
+                action_ = softmax_(env=env, beta=epsilon_exploration, Q=Q)
             encoded_action_ = env.encode_action(action_)
 
             # update trace of current state action pair
-            # TODO
+            traces[state][encoded_action] += 1
 
             # compute the target
             # Hint: all Q-values for fictitious state-action pairs are set to zero by convention
+            delta = reward + gamma*Q[state_][encoded_action_] - Q[state][encoded_action]
 
             # update all Q-values
-            Q[state][encoded_action_] = Q[state][encoded_action_] + alpha * (env.reward() - Q[state][encoded_action_])  # one horizon only
+            for s in traces.keys():
+                for a, _ in enumerate(traces[s]):
+                    if traces[s][a] != 0:
+                        Q[s][a] = Q[s][a] + alpha * delta * traces[s][a]
 
             # prepare for the next move
             episode_length += 1
-            episode_reward += env.reward()
+            episode_reward += reward
+            state = state_
+            action = action_
 
         # save reward of the current episode
         episode_rewards[n_ep] = episode_reward
