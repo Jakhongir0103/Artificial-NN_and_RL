@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from pprint import pprint
 import numpy as np
 from random import sample
 from scipy.special import softmax
@@ -60,7 +61,6 @@ def epsilon_greedy(env, epsilon, Q):
         # Hint: remember to break ties randomly
         idx = np.argmax(np.ma.array(Q_current, mask=mask))
         return env.inverse_encoding(idx)
-
 
 
 def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon_greedy", epsilon_exploration=0.1,
@@ -171,7 +171,6 @@ def sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon
     return Q, stats
 
 
-
 def q_learning(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon_greedy", epsilon_exploration=0.1,
                epsilon_exploration_rule=None, trace_decay=0, initial_q=0):
     """
@@ -212,32 +211,67 @@ def q_learning(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="ep
     episode_lengths = np.empty(num_episodes)  # length for each training episode
 
     for itr in range(num_episodes):
-
         env.reset()
 
+        # initialize the action with greedy
+        state = env.get_state()
+        action = epsilon_greedy(env=env, epsilon=0, Q=Q)
+
         # re-initialize the eligibility traces
+        traces = defaultdict(lambda: np.zeros(env.get_num_actions()))
+        
+        # save episode length and reward
+        episode_length = 0
+        episode_reward = 0
 
         while not env.end:
-            raise NotImplementedError
             # rescale all traces
+            for s in traces.keys():
+                for a, _ in enumerate(traces[s]):
+                    if traces[s][a] != 0:
+                       traces[s][a] = trace_decay * traces[s][a]
 
+            # do action and get current state and reward
+            state_, reward = env.do_action(action)
+            encoded_action = env.encode_action(action)
+            
             # choose action according to the desired policy
-
-            # move according to the policy
+            if action_policy=='epsilon_greedy':
+                if epsilon_exploration_rule is None:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q)
+                else:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration_rule[itr], Q=Q)
+            else:
+                action_ = softmax_(env=env, beta=epsilon_exploration, Q=Q)
 
             # update trace of current state action pair
+            traces[state][encoded_action] += 1
 
-            # compute the target
+            # compute the target -- OFF POLICY
             # Hint: all Q-values for fictitious state-action pairs are set to zero by convention
+            encoded_action_ = env.encode_action(epsilon_greedy(env=env, epsilon=0, Q=Q))
+            delta = reward + gamma*Q[state_][encoded_action_] - Q[state][encoded_action]
 
             # update all Q-values
+            for s in traces.keys():
+                for a, _ in enumerate(traces[s]):
+                    if traces[s][a] != 0:
+                        Q[s][a] = Q[s][a] + alpha * delta * traces[s][a]
 
             # prepare for the next move
+            episode_length += 1
+            episode_reward += reward
+            state = state_
+            action = action_
 
         # save reward of the current episode
+        episode_rewards[itr] = episode_reward
         # save length of the current episode
+        episode_lengths[itr] = episode_length
 
     # save stats
+    stats = {'episode_rewards':episode_rewards, 'episode_lengths':episode_lengths}
+    return Q, stats
 
 
 def n_step_sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="epsilon_greedy", n=1,
@@ -273,30 +307,77 @@ def n_step_sarsa(env, alpha=0.05, gamma=0.99, num_episodes=1000, action_policy="
     episode_lengths = np.empty(num_episodes)
 
     # Hint: it may be useful to compute the weight of the rewards, something like
-    # reward_weights = np.array([gamma ** i for i in range(n)])
+    reward_weights = np.array([gamma ** i for i in range(n)])
 
     for itr in range(num_episodes):
 
         env.reset()
 
         # initialize a queue for state action pairs and rewards of the current episode
+        state = env.get_state()
+        if action_policy=='epsilon_greedy':
+            action = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q)
+        else:
+            action = softmax_(env=env, beta=epsilon_exploration, Q=Q)
 
+        # save episode length and reward
+        episode_length = 0
+        episode_reward = 0
+
+        # counter
+        t = 0
+        encoded_actions = []
+        states = []
+        rewards = []
         while not env.end:
-            raise NotImplementedError
+            # update the counter
+            t += 1
+
             # Move according to the policy
-
             # Save obtained reward
+            state_, reward = env.do_action(action)
+            encoded_action = env.encode_action(action)
 
-            # compute the target
-            # Hint: all Q-values for fictitious state-action pairs are set to zero by convention
+            # track the current reward, state and action
+            if t > n:
+                encoded_actions.pop(0)
+                states.pop(0)
+                rewards.pop(0)
+            encoded_actions += [encoded_action]
+            states += [state]
+            rewards += [reward]
 
-            # update Q-value of state-action pair which is n steps away from the reward
+            # choose action according to the desired policy
+            if action_policy=='epsilon_greedy':
+                if epsilon_exploration_rule is None:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration, Q=Q)
+                else:
+                    action_ = epsilon_greedy(env=env, epsilon=epsilon_exploration_rule[itr], Q=Q)
+            else:
+                action_ = softmax_(env=env, beta=epsilon_exploration, Q=Q)
+            encoded_action_ = env.encode_action(action_)
 
+            # Updating all the Q values within the n step from the reward
+            # Not only a single Q Value n step away from the reward
+            if t >= n:
+                for i in range(n):
+                    # Hint: all Q-values for fictitious state-action pairs are set to zero by convention
+                    delta = np.dot(reward_weights, rewards) + gamma**n*Q[state_][encoded_action_] - Q[states[i]][encoded_actions[i]]
+
+                    # update Q-value of state-action pair which is n steps away from the reward
+                    Q[states[i]][encoded_actions[i]] = Q[states[i]][encoded_actions[i]] + alpha * delta            
+            
             # prepare next move
-
-        # update remaining Q-values within n steps from the reward
+            episode_length += 1
+            episode_reward += reward
+            state = state_
+            action = action_
 
         # save reward of the current episode
+        episode_rewards[itr] = episode_reward
         # save length of the current episode
+        episode_lengths[itr] = episode_length
 
     # save stats
+    stats = {'episode_rewards':episode_rewards, 'episode_lengths':episode_lengths}
+    return Q, stats

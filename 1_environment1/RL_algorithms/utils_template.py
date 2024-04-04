@@ -3,6 +3,7 @@ import io
 from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
 
 from RL_algorithms.algorithms_template import epsilon_greedy, q_learning, sarsa, n_step_sarsa
 
@@ -90,7 +91,7 @@ def compare_episodes_lengths_and_rewards(env, algos, num_avg, show_std, addition
     if additional_params is None:
         additional_params = [{}] * len(algos)
     # loop over the algorithms
-    for ind, algo in enumerate(algos):
+    for ind, algo in tqdm(enumerate(algos)):
         name = algo["name"]
         episode_lengths = defaultdict(lambda: {})  # initialize dictionary for current algorithm
         episode_rewards = defaultdict(lambda: {})
